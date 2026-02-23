@@ -88,6 +88,16 @@ lib-$(CONFIG_X86)		+= x86-stub.o smbios.o
 lib-$(CONFIG_X86_64)		+= x86-5lvl.o
 lib-$(CONFIG_RISCV)		+= kaslr.o riscv.o riscv-stub.o
 lib-$(CONFIG_LOONGARCH)		+= loongarch.o loongarch-stub.o
+lib-$(subst m,y,$(CONFIG_MSHV_ROOT)) += efi-mshv-common.o
+UBSAN_SANITIZE_efi-mshv-common.o := n
+ifdef CONFIG_X86_64
+lib-$(CONFIG_MSHV_ROOT)	+= x86-efi-mshv.o
+UBSAN_SANITIZE_x86-efi-mshv.o := n
+endif
+ifdef CONFIG_ARM64
+lib-$(subst m,y,$(CONFIG_MSHV_ROOT)) += arm64-efi-mshv.o
+UBSAN_SANITIZE_arm64-efi-mshv.o := n
+endif
 
 CFLAGS_arm32-stub.o		:= -DTEXT_OFFSET=$(TEXT_OFFSET)
 

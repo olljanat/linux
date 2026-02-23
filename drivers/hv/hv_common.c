@@ -30,6 +30,12 @@
 #include <linux/set_memory.h>
 #include <hyperv/hvhdk.h>
 #include <asm/mshyperv.h>
+#include <linux/memblock.h>
+#include <linux/crash_dump.h>
+
+#define HV_MAX_RESVD_RANGES 32
+static struct resource hv_mshv_res[HV_MAX_RESVD_RANGES];
+static u32 ranges_nr;
 
 u64 hv_current_partition_id = HV_PARTITION_ID_SELF;
 EXPORT_SYMBOL_GPL(hv_current_partition_id);
@@ -67,6 +73,7 @@ EXPORT_SYMBOL_GPL(hyperv_pcpu_output_arg);
 static void hv_kmsg_dump_unregister(void);
 
 static struct ctl_table_header *hv_ctl_table_hdr;
+
 
 /*
  * Per-cpu array holding the tail pointer for the SynIC event ring buffer
@@ -863,3 +870,60 @@ const char *hv_result_to_string(u64 status)
 	return "Unknown";
 }
 EXPORT_SYMBOL_GPL(hv_result_to_string);
+
+/*
+ * Parse "hyperv_resvd_new=<size>!<address>,<size>!<address>,...", specifying a
+ * list of memory ranges that are reserved by the loader for the hypervisor.
+ */
+static int __init hv_parse_hyperv_resvd_new(char *arg)
+{
+	unsigned long long region_start, region_sz;
+	int i = 0;
+	char *curr = arg;
+
+	if (is_kdump_kernel())
+		return 0;
+
+	while (*curr != 0) {
+		if (i >= HV_MAX_RESVD_RANGES) {
+			pr_err("Hyper-V: too many hyperv_resvd_new ranges specified: %s\n", arg);
+			BUG();
+		}
+
+		region_sz = simple_strtoull(curr, &curr, 16);
+		if (!region_sz) {
+			pr_err("Hyper-V: invalid format for hyperv_resvd_new: %s\n", arg);
+			BUG();
+		}
+
+		if (*curr != '!') {
+			pr_err("Hyper-V: invalid format for hyperv_resvd_new: %s\n", arg);
+			BUG();
+		}
+
+		++curr;
+
+		region_start = simple_strtoull(curr, &curr, 16);
+		if (region_start == 0) {
+			pr_err("Hyper-V: invalid format for hyperv_resvd_new: %s\n", arg);
+			BUG();
+		}
+
+		memblock_reserve(region_start, region_sz);
+
+		hv_mshv_res[i].name = "Hypervisor Code and Data";
+		hv_mshv_res[i].flags = IORESOURCE_BUSY | IORESOURCE_SYSTEM_RAM;
+		hv_mshv_res[i].start = region_start;
+		hv_mshv_res[i].end = region_start + region_sz - 1;
+
+		if (*curr == ',')
+			++curr;
+
+		++i;
+	}
+
+	ranges_nr = i;
+
+	return 0;
+}
+early_param("hyperv_resvd_new", hv_parse_hyperv_resvd_new);
